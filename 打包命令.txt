@@ -1,0 +1,2 @@
+C:\Users\CNPAZHA6\Projects\LMT_HART\targaryen>pyinstaller -F -i .\LMT_tool.ico -w .\DOAP_tools.py
+
