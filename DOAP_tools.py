@@ -8,6 +8,7 @@ import DOAPSerialHw
 import DOAPFrame
 import SlipProtocol
 import struct
+import pandas as pd
 
 request_code_get_value = 0x01
 request_code_put_value = 0x02
@@ -757,8 +758,22 @@ class DOAP_PC_TOOL_FRAME(wx.Frame):
             dest_str += "0x" + DUMP_HEX(obj_data)
         return dest_str
 
+    def search_data_type(self, data_type_str):
+        type_idx = 8
+        if data_type_str in ['TABENUM8', 'SIMPLE_U8', 'ACTION']:
+            type_idx = 1
+        elif data_type_str in ['SIMPLE_FLOAT', 'FLOAT']:
+            type_idx = 7
+        elif data_type_str in ['SIMPLE_U32']:
+            type_idx = 5
+        elif data_type_str in ['SIMPLE_I16']:
+            type_idx = 4
+        elif data_type_str in ['SIMPLE_U16', ]:
+            type_idx = 3
+        return type_idx
+
     def Parse_DOAP_Response_Frame(self, frame_list):
-        if (frame_list[0] & 0x40 == 0x00):
+        if frame_list[0] & 0x40 == 0x00:
             self.response_frame_cfg_command_dt.Value = 'Get Object'
         else:
             self.response_frame_cfg_command_dt.Value = 'Put Object'
@@ -777,7 +792,7 @@ class DOAP_PC_TOOL_FRAME(wx.Frame):
         self.response_frame_cfg_subidx_dt.Value = ''
         self.response_frame_cfg_objidx_dt.Value = ''
         self.response_frame_cfg_obj_size_dt.Value = ''
-        #self.response_frame_cfg_obj_type_ch.SetSelection(8)
+        # self.response_frame_cfg_obj_type_ch.SetSelection(8)
         self.response_frame_cfg_obj_data_dt.Value = ''
 
     # ["String", "TUSIGN8","TINT8","TUSIGN16","TINT16","TUSIGN32","TINT32","TFLOAT","HEX"]
@@ -894,7 +909,7 @@ class DOAP_PC_TOOL_FRAME(wx.Frame):
                     self.message_display_dt.Value = 'Object Data Is Not A Float Value'
         elif obj_type_idx == 8:
             data_list = Get_HEX_From_String(obj_data_str)
-            if data_list == []:
+            if not data_list:
                 self.message_display_dt.Value = 'Not A Valid HEX'
             else:
                 pass
@@ -919,12 +934,26 @@ class DOAP_PC_TOOL_FRAME(wx.Frame):
         self.ser.timeout = 0.5
         self.reponse_flag = False
         req_cmd_str = self.request_frame_cfg_command_ch.GetString(self.request_frame_cfg_command_ch.GetSelection())
-        if (req_cmd_str == 'Get Object'):
-            req_board_idx_str = self.request_frame_cfg_obj_size_it.Value
+
+        req_board_idx_str = self.request_frame_cfg_obj_size_it.Value
+        if req_board_idx_str == '1':
+            object_lists = pd.read_csv('./FEdataOBJ_0_9_9_Pra.csv')
+        elif req_board_idx_str == '0':
+            object_lists = pd.read_csv('./CBdataOBJPra.csv')
+        else:
+            pass
+
+        if req_cmd_str == 'Get Object':
             req_sub_idx_str = self.request_frame_cfg_subidx_it.Value
             req_obj_idx_str = self.request_frame_cfg_objidx_it.Value
             req_attribute_str = self.request_frame_cfg_attribute_idx_tc.Value
-            if (req_sub_idx_str.isdigit() and req_obj_idx_str.isdigit()):
+            match_objidx_row = object_lists[
+                (object_lists["SUBIDX"] == int(req_sub_idx_str)) & (object_lists["OBJIDX"] == int(req_obj_idx_str))]
+            match_type_str = match_objidx_row["TYPE"]
+            # "String", "TUSIGN8","TINT8","TUSIGN16","TINT16","TUSIGN32","TINT32","TFLOAT","HEX"
+            type_idx = self.search_data_type(match_type_str.values)
+
+            if req_sub_idx_str.isdigit() and req_obj_idx_str.isdigit():
                 req_data_list = []
                 baud_set = self.serial_port_baudrate_ch.GetSelection()
                 if baud_set == 1:
@@ -946,7 +975,7 @@ class DOAP_PC_TOOL_FRAME(wx.Frame):
                 DOAPSerialHw.serial_port_write(self.ser, req_encode_list)
                 req_encode_list.clear()
                 res_frame_list = DOAPSerialHw.serial_port_read(self.ser, 300)
-                if (len(res_frame_list) != 0):
+                if len(res_frame_list) != 0:
                     self.message_display_dt.Value += 'DOAP Receive Frame: '
                     self.message_display_dt.Value += DUMP_HEX(res_frame_list)
                     if baud_set == 1:
@@ -954,8 +983,8 @@ class DOAP_PC_TOOL_FRAME(wx.Frame):
                         res_decode_ack_code, res_decode_list = SlipProtocol.Decode_SlipProtocol(res_data_frame_list)
                     else:
                         res_decode_ack_code, res_decode_list = SlipProtocol.Decode_FE_CommProtocol(res_frame_list)
-                    if (res_decode_list != []):
-                        if (DOAPFrame.Check_DOAP_Ack_Frame(res_decode_ack_code)):
+                    if res_decode_list:
+                        if DOAPFrame.Check_DOAP_Ack_Frame(res_decode_ack_code):
                             self.reponse_flag = True
                             if baud_set == 1:
                                 res_board_type = res_decode_list[0]
@@ -971,9 +1000,9 @@ class DOAP_PC_TOOL_FRAME(wx.Frame):
                                 res_attr_idx = res_decode_list[4]
                                 res_data = res_decode_list[6:]
                                 res_data_size = len(res_data)
-                            type_idx = self.response_frame_cfg_obj_type_ch.GetSelection()
+                            # type_idx = self.response_frame_cfg_obj_type_ch.GetSelection()
                             str_data = "".join([str(data) for data in res_data])
-                            if (self.Check_if_type_select_valid(type_idx, res_data_size)):
+                            if self.Check_if_type_select_valid(type_idx, res_data_size):
                                 data_list = res_data
                                 convert_str = self.Conver_Data_Object_By_Type(type_idx, data_list, res_board_type)
                                 self.response_frame_cfg_obj_data_dt.Value = convert_str
@@ -989,6 +1018,7 @@ class DOAP_PC_TOOL_FRAME(wx.Frame):
                                 pass
                             self.response_frame_cfg_attribute_idx_tc.SetValue(str(res_attr_idx))
                             self.response_frame_cfg_obj_size_dt.SetValue(str(res_data_size))
+                            self.response_frame_cfg_obj_type_ch.SetSelection(type_idx)
                             self.message_display_dt.Value += 'Ack Received\n'
                             self.message_display_dt.Value += 'DOAP Response Frame:'
                             self.message_display_dt.Value += DUMP_HEX(res_frame_list)
@@ -1034,7 +1064,7 @@ class DOAP_PC_TOOL_FRAME(wx.Frame):
                 self.message_display_dt.Value += DUMP_HEX(req_encode_list)
                 DOAPSerialHw.serial_port_write(self.ser, req_encode_list)
                 res_frame_list = DOAPSerialHw.serial_port_read(self.ser, 80)
-                if (len(res_frame_list) != 0):
+                if len(res_frame_list) != 0:
                     self.message_display_dt.Value += 'DOAP Receive Frame: '
                     self.message_display_dt.Value += DUMP_HEX(res_frame_list)
                     if baud_set == 1:
@@ -1042,8 +1072,8 @@ class DOAP_PC_TOOL_FRAME(wx.Frame):
                         res_decode_ack_code, res_decode_list = SlipProtocol.Decode_SlipProtocol(res_data_frame_list)
                     else:
                         res_decode_ack_code, res_decode_list = SlipProtocol.Decode_FE_CommProtocol(res_frame_list)
-                    if (res_decode_list != []):
-                        if (DOAPFrame.Check_DOAP_Ack_Frame(res_decode_ack_code)):
+                    if res_decode_list:
+                        if DOAPFrame.Check_DOAP_Ack_Frame(res_decode_ack_code):
                             self.reponse_flag = True
                             if baud_set == 1:
                                 res_board_type = res_decode_list[0]
@@ -1061,7 +1091,7 @@ class DOAP_PC_TOOL_FRAME(wx.Frame):
                                 res_data_size = len(res_data)
                             type_idx = self.response_frame_cfg_obj_type_ch.GetSelection()
                             str_data = "".join([str(data) for data in res_data])
-                            if (self.Check_if_type_select_valid(type_idx, res_data_size)):
+                            if self.Check_if_type_select_valid(type_idx, res_data_size):
                                 data_list = res_data
                                 convert_str = self.Conver_Data_Object_By_Type(type_idx, data_list, res_board_type)
                                 self.response_frame_cfg_obj_data_dt.Value = convert_str
@@ -1331,7 +1361,7 @@ if __name__ == '__main__':
     # When this module is run (not imported) then create the app, the
     # frame, show it, and start the event loop.
     app = wx.App()
-    frm = DOAP_PC_TOOL_FRAME(None, title='LMT PC Tool v0.0.2')
+    frm = DOAP_PC_TOOL_FRAME(None, title='LMT PC Tool v0.0.3')
     frm.SetSize(730, 900)
     frm.Show()
     app.MainLoop()
